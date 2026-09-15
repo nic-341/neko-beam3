@@ -1,0 +1,7 @@
+cat-animation.png：4列×2行、8コマのスプライトシート。
+上段：歩き4コマ。下段：走り2コマ、ジャンプ上昇、下降。
+内蔵の画像生成ツールで作成。ゲームでは操作状態に応じてコマを切り替えます。
+画像フォルダーが読み込めない場合は、index.html内に同梱した画像を使います。
+
+生成プロンプト：
+Create a production-ready pixel-art sprite sheet PNG on a genuinely TRANSPARENT background. Exactly 8 animation frames in a precise regular grid: 4 equal columns and 2 equal rows. Canvas aspect ratio 2:1. Each cell is square. Each cell shows the SAME cute white and gray tabby cat, side profile facing RIGHT, green eye, pink ears, gray striped back, raised gray tail, four-legged animal. Clean navy pixel outlines and white fur, 16-bit game art. No text, no labels, no grid lines, no background, no floor, no shadows. Each cat fits in its own cell with equal scale and baseline, occupies about 90 percent cell width and 65 percent cell height, bottom paws aligned 85 percent down the cell, all tail tips within cell. TOP ROW 4 frames are a four-frame WALK cycle: alternating forelegs and hindlegs forward/back and passing poses. BOTTOM ROW first 2 frames are a RUN cycle: 1 extended bounding stride with front legs reaching forward and rear legs backward, 2 gathered stride with paws tucked under belly. Bottom row third frame is JUMP UP: paws tucked, head/body slightly tilted upward. Bottom row fourth frame is FALL/LAND: paws extended down, body level, tail up. Exact regular aligned 4-column 2-row grid is critical for automated game playback. All frames same cat identity and body size. This is an actual sprite sheet asset, not a mockup.
