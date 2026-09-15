@@ -1,6 +1,6 @@
 'use strict';
 // Replace these PNGs to customize the artwork. Missing images use pixel-art fallbacks.
-const SPRITES={cat:'assets/cat.png',catAnimation:'assets/cat-animation.png',run:'assets/cat-run.png',mouseAnimation:'assets/mouse-animation.png',settle:'assets/cat-settle.png',sleep:'assets/cat-sleep.png',mouse:'assets/mouse.png',taiyaki:'assets/taiyaki-simple.png',tower:'assets/tower-warm.png',background:'assets/hills-background.png'};
+const SPRITES={cat:'assets/cat.png',catAnimation:'assets/cat-animation.png',run:'assets/cat-run.png',mouseAnimation:'assets/mouse-animation.png',settle:'assets/cat-settle.png',sleep:'assets/cat-sleep.png',mouse:'assets/mouse.png',taiyaki:'assets/taiyaki-simple.png',tower:'assets/tower-warm.png',background:'assets/hills-background.png',forest:'assets/forest-background.png'};
 const art={};for(const [k,src] of Object.entries(SPRITES)){const im=new Image();let retried=false;im.onload=()=>{art[k]=im;paintHUDIcon(k,im);};im.onerror=()=>{const embedded=window.NEKO_EMBEDDED_ASSETS?.[k];if(!retried&&embedded){retried=true;im.src=embedded;}};im.src=src;}
 const canvas=document.querySelector('#canvas'),ctx=canvas.getContext('2d');
 const ui={overlay:document.querySelector('#overlay'),title:document.querySelector('h1'),msg:document.querySelector('#message'),start:document.querySelector('#start'),life:document.querySelector('#life'),fish:document.querySelector('#fish'),bar:document.querySelector('#progress i')};
@@ -19,6 +19,7 @@ const COURSE_PATTERNS=[
  {ground:[[0,840],[940,260]],ledges:[[390,45,170],[650,75,140],[970,30,100]]}
 ];
 const COURSE_ORDER=[0,1,2,3,4,2,1,3,0,4];
+let stage=1;
 let completeCelebrated=false;
 let midpointUnlocked=false;
 let state='ready',player,camera=0,platforms=[],mice=[],fish=[],shots=[],particles=[],collected=0,elapsed=0,checkpoint=80,last=0,acc=0,jumpQueued=false,sound=false,audio;
@@ -26,9 +27,9 @@ let endingTime=0,arrivalX=0,arrivalY=0,stock=3,restartTime=0;
 function tone(f,d=.08){if(!sound)return;try{audio??=new(window.AudioContext||window.webkitAudioContext)();audio.resume();const o=audio.createOscillator(),g=audio.createGain();o.type='square';o.frequency.value=f;g.gain.setValueAtTime(.035,audio.currentTime);g.gain.exponentialRampToValueAtTime(.001,audio.currentTime+d);o.connect(g);g.connect(audio.destination);o.start();o.stop(audio.currentTime+d);}catch{}}
 function reset(newGame=true){completeCelebrated=false;if(newGame){stock=3;midpointUnlocked=false;}restartTime=0;endingTime=0;ui.overlay.classList.remove('ending');ui.overlay.classList.remove('complete');player={x:80,y:GROUND-38,w:38,h:38,vx:0,vy:0,dir:1,hp:3,inv:0,grounded:false,coyote:0,cool:0};camera=0;collected=0;elapsed=0;checkpoint=80;heartDrops=[];shots=[];particles=[];platforms=[];mice=[];fish=[];
  // Eight deliberate learning jumps; long quiet stretches between challenges.
- const gaps=[[1800,1890],[4800,4890],[7600,7700]];
+ const gaps=stage===1?[[1800,1890],[4800,4890],[7600,7700]]:[[1700,1800],[4700,5140],[6200,6300],[7600,8070]];
  let edge=0;for(const [left,right] of gaps){platforms.push({x:edge,y:GROUND,w:left-edge,h:180});edge=right;}platforms.push({x:edge,y:GROUND,w:WORLD-edge,h:180});
- const ledges=[[850,40,100],[2700,50,220],[3020,85,240],[5700,55,120],[6700,45,180]];
+ const ledges=stage===1?[[850,40,100],[2700,50,220],[3020,85,240],[5700,55,120],[6700,45,180]]:[[900,45,120],[2500,50,180],[2780,95,200],[3800,40,110],[5700,55,130],[6750,50,160]];
  for(const [x,height,width] of ledges)platforms.push({x,y:GROUND-height,w:width,h:height});
  // Patrol only on clear stretches of the starting ground, never on ledges.
  const blocked=[...gaps,...ledges.map(([x,h,w])=>[x,x+w])].sort((a,b)=>a[0]-b[0]);
@@ -56,8 +57,57 @@ function reset(newGame=true){completeCelebrated=false;if(newGame){stock=3;midpoi
  for(const x of [520,4510,7860]){const beside=fish.find(f=>f.x===x);fish.push({x:beside.x+80,y:beside.y,taken:false,value:2});}
  // Separate the ordinary airborne treat from the nearby bonus treat.
  fish.find(f=>f.x===6490&&!f.value).x=6380;
+ if(stage===2)buildForestStage();
+ updateStageLabels();
  if(!newGame&&midpointUnlocked){player.x=WORLD/2+80;checkpoint=player.x;player.inv=2;camera=Math.max(0,Math.min(WORLD-viewW(),player.x-viewW()*.33));}
  clearKeys();updateHUD();}
+
+function updateStageLabels(){
+ const name=stage===1?'はじまりの丘':'木漏れ日の森';
+ for(const selector of ['.edition','.eyebrow'])document.querySelector(selector).textContent='STAGE 1–'+stage+' / '+name;
+ document.querySelector('.brand span').textContent=name;
+ document.querySelector('.below span').textContent=name+'を越えて、あのキャットハウスまで。';
+ document.querySelector('#stage-select').value=String(stage);
+}
+function buildForestStage(){
+ // Layered fern terraces, safe gaps and a clear midpoint clearing.
+ platforms=platforms.filter(p=>!p.oneWay);
+ for(const [x,height,width] of [[1250,55,200],[2050,55,180],[2270,100,150],[3200,65,220],[3480,105,150],[4780,50,105],[4960,90,105],[7050,55,180],[7680,55,110],[7880,95,110]])platforms.push({x,y:GROUND-height,w:width,h:height,oneWay:true});
+ const walls=platforms.filter(p=>p.oneWay);
+ fish=[];
+ for(const x of [300,530,750,1150,1560,1900,2550,2860,3100,3700,4200,4510,4825,5500,5580,5900,6440,7000,7900,7480]){
+ const surface=Math.min(...platforms.filter(p=>p.x<=x&&p.x+p.w>x).map(p=>p.y));fish.push({x,y:surface-34,taken:false});}
+ for(const wall of walls)for(const r of [.3,.7])fish.push({x:wall.x+wall.w*r,y:wall.y-34,taken:false});
+ for(const [x,y] of [[610,350],[2380,275],[4590,350],[6500,350],[7980,406]])fish.push({x,y,taken:false,value:2});
+ for(const x of [4100,7400])mice.push({x,y:GROUND-25,w:34,h:25,v:42,min:x-40,max:x+45,alive:true});
+ mice.forEach((m,i)=>{if(i%2===1){m.kind='hopper';m.wait=.8+(i%3)*.2;m.vy=0;m.v=0;}});
+}
+function drawHopper(m){
+ const rows=['  bb      bb  ',' bppb    bppb ',' bbbb    bbbb ','  bbbbbbbbbb  ',' bbbwwbbwwbbb ',' bbbkkbbkkbbb ',' bbbbbnnbbbbb ','  bwwwwwwwwb  ','  bbbbbbbbbb  ','   bb    bb   '];
+ pixel(rows,m.x-4,m.y-7,3,{b:'#855d42',p:'#f3b5a1',w:'#fff0d1',k:'#273d37',n:'#cc766e'},m.v<0);
+}
+function drawForest(w){
+ if(art.forest){const im=art.forest,bw=540*im.width/im.height,offset=(camera*.12)%bw;for(let i=-1;i<=Math.ceil(w/bw);i++){const x=i*bw-offset;ctx.save();if(i%2){ctx.translate(x+bw,0);ctx.scale(-1,1);ctx.drawImage(im,0,0,bw+1,540);}else ctx.drawImage(im,x,0,bw+1,540);ctx.restore();}return;}
+
+ ctx.fillStyle='#c5e7b3';ctx.fillRect(0,0,w,540);
+ // Three layers of trees give the forest depth while keeping the path bright.
+ for(let layer=0;layer<3;layer++){
+ const spacing=[155,220,310][layer],offset=camera*[.08,.17,.28][layer],base=[400,435,460][layer];
+ for(let i=Math.floor(offset/spacing)-1;i<Math.ceil((offset+w)/spacing)+1;i++){
+ const x=i*spacing-offset,seed=noise(i+layer*31),tw=[12,23,38][layer],top=35+seed*85;
+ ctx.fillStyle=['#93bea0','#789e80','#69856a'][layer];ctx.fillRect(x,top,tw,base-top);ctx.fillStyle=['#b1cda6','#a6b993','#b3b082'][layer];ctx.fillRect(x+tw*.18,top,tw*.22,base-top);
+ for(let b=0;b<4;b++){ctx.fillStyle=['#a8cf93','#80b877','#559966'][layer];ctx.fillRect(x-55-b*8,top-35+b*20,120+b*15,25);}
+ for(let j=0;j<22;j++){const lx=x-75+noise(i*23+j)*175,ly=top-65+noise(i*19+j+5)*110;ctx.fillStyle=['#b8db9a','#93c87a','#6eae66'][layer];ctx.fillRect(lx,ly,18+noise(j+i)*27,12);ctx.fillStyle=['#d9eab3','#b6d98a','#a4cb74'][layer];ctx.fillRect(lx+2,ly,14,3);}
+ if(layer===2){ctx.fillStyle='#79955b';ctx.fillRect(x-16,base-15,tw+36,15);}
+ }
+ }
+ // Ferns and distant undergrowth soften the tree bases.
+ for(let i=-1;i<Math.ceil(w/70)+1;i++){const x=i*70-(camera*.35%70),y=405+noise(i)*24;ctx.fillStyle='#86b385';ctx.fillRect(x-15,y-12,60,25);ctx.fillStyle='#a4c892';ctx.fillRect(x-7,y-19,40,12);for(let j=0;j<4;j++){ctx.fillStyle=j%2?'#b6cf98':'#729f77';ctx.fillRect(x+j*10,y-15-j*3,4,30);ctx.fillRect(x+j*10-5,y-11-j*3,14,3);}}
+ // Broad shafts through canopy openings, plus small motes in the light.
+ for(let i=-1;i<Math.ceil(w/330)+1;i++){const x=i*330-(camera*.12%330);ctx.fillStyle='rgba(255,249,186,.20)';ctx.beginPath();ctx.moveTo(x+110,0);ctx.lineTo(x+148,0);ctx.lineTo(x+10,460);ctx.lineTo(x-95,460);ctx.closePath();ctx.fill();ctx.fillStyle='rgba(255,255,220,.18)';ctx.beginPath();ctx.moveTo(x+120,0);ctx.lineTo(x+128,0);ctx.lineTo(x-22,460);ctx.lineTo(x-52,460);ctx.closePath();ctx.fill();}
+ for(let i=0;i<28;i++){const x=((i*137-camera*.22+Math.sin(elapsed*.4+i)*9)%w+w)%w,y=120+(i*71%300);ctx.fillStyle='rgba(255,253,199,.7)';ctx.fillRect(x,y,2,2);}
+}
+
 function clearKeys(){for(const k in keys)keys[k]=false;dash.left=dash.right=false;jumpQueued=false;document.querySelectorAll('.active').forEach(e=>e.classList.remove('active'));}
 function paintHUDIcon(name,im){
  if(name!=='catAnimation'&&name!=='taiyaki')return;
@@ -68,7 +118,7 @@ function paintHUDIcon(name,im){
 }
 function updateHUD(){ui.life.innerHTML=Array.from({length:3},(_,i)=>'<span class="hud-heart '+(i<player.hp?'full':'empty')+'" aria-hidden="true"><img src="'+heartURL+'" alt="" draggable="false"></span>').join('');ui.life.setAttribute?.('aria-label','ライフ '+player.hp+' / 3');document.querySelector('#stock').textContent=String(stock);ui.fish.textContent=String(collected).padStart(2,'0');ui.bar.style.width=Math.min(100,player.x/(WORLD-200)*100)+'%';}
 function show(title,msg,label){ui.overlay.classList[state==='paused'?'add':'remove']('paused');ui.title.innerHTML=title;ui.msg.textContent=msg;ui.start.innerHTML=label+' <span>→</span>';ui.overlay.style.display='flex';}
-function start(){if(state==='over'&&midpointUnlocked){reset();midpointUnlocked=true;player.x=WORLD/2+80;checkpoint=player.x;player.inv=2;camera=Math.max(0,Math.min(WORLD-viewW(),player.x-viewW()*.33));state='playing';ui.overlay.style.display='none';updateHUD();tone(660);return;}if(state==='restarting')return;if(state==='paused'){state='playing';ui.overlay.style.display='none';return;}reset();state='playing';ui.overlay.style.display='none';tone(660);}
+function start(){if(state==='clear'&&stage===1){const remainingStock=stock;stage=2;reset();stock=remainingStock;state='playing';ui.overlay.style.display='none';updateHUD();tone(660);return;}if(state==='over'&&midpointUnlocked){reset();midpointUnlocked=true;player.x=WORLD/2+80;checkpoint=player.x;player.inv=2;camera=Math.max(0,Math.min(WORLD-viewW(),player.x-viewW()*.33));state='playing';ui.overlay.style.display='none';updateHUD();tone(660);return;}if(state==='restarting')return;if(state==='paused'){state='playing';ui.overlay.style.display='none';return;}reset();state='playing';ui.overlay.style.display='none';tone(660);}
 function pause(){if(state==='playing'){state='paused';clearKeys();show('ひとやすみ。','猫もあなたも、ちょっと休憩。','冒険をつづける');}else if(state==='paused')start();}
 function hit(fall=false){
  if(state!=='playing'||(!fall&&player.inv>0))return;
@@ -94,7 +144,7 @@ function step(dt){
    const stepUp=Math.max(0,Math.min(1,(t-.35)/.65));
    player.y=arrivalY+(GROUND-61+GOAL_OFFSET-arrivalY)*stepUp;player.dir=1;player.grounded=true;player.vx=endingTime<1.3?55:0;
    camera=Math.max(0,Math.min(WORLD-viewW(),player.x-viewW()*.33));
-   if(endingTime>=5.4){state='clear';ui.overlay.classList.add('ending');show('ステージクリア！','たい焼き '+collected+' / '+fish.reduce((total,f)=>total+(f.value||1),0)+' 個 · '+Math.floor(elapsed/60)+'分'+Math.floor(elapsed%60)+'秒','もういちど遊ぶ');} 
+   if(endingTime>=5.4){state='clear';ui.overlay.classList.add('ending');show('ステージクリア！','たい焼き '+collected+' / '+fish.reduce((total,f)=>total+(f.value||1),0)+' 個 · '+Math.floor(elapsed/60)+'分'+Math.floor(elapsed%60)+'秒',stage===1?'1-2 木漏れ日の森へ':'もういちど遊ぶ');} 
   }return;
  }
  if(state!=='playing')return;elapsed+=dt;player.inv=Math.max(0,player.inv-dt);player.cool-=dt;player.coyote=player.grounded?.11:Math.max(0,player.coyote-dt);
@@ -104,14 +154,15 @@ function step(dt){
  for(const p of platforms)if(!p.oneWay&&rect(player,p)){if(player.vx>0)player.x=p.x-player.w;else if(player.vx<0)player.x=p.x+p.w;}
  const oldY=player.y;player.y+=player.vy*dt;player.grounded=false;for(const p of platforms)if(rect(player,p)){if(player.vy>=0&&oldY+player.h<=p.y+1){player.y=p.y-player.h;player.vy=0;player.grounded=true;}else if(!p.oneWay&&player.vy<0&&oldY>=p.y+p.h-1){player.y=p.y+p.h;player.vy=0;}}
  if(player.grounded&&player.x>=WORLD/2)midpointUnlocked=true;
- if(player.grounded&&player.x%SECTION<300)checkpoint=Math.floor(player.x/SECTION)*SECTION+80;
+ if(player.grounded&&player.x%SECTION<300){const candidate=Math.floor(player.x/SECTION)*SECTION+80;if(platforms.some(p=>!p.oneWay&&p.y===GROUND&&candidate>=p.x&&candidate+player.w<=p.x+p.w))checkpoint=candidate;}
  if(player.y>700){hit(true);if(state!=='playing')return;}
  if(keys.beam&&player.cool<=0){shots.push({x:player.x+(player.dir===1?32:-22),y:player.y+12,w:28,h:5,v:player.dir*650,t:1.1});player.cool=.24;tone(880,.04);}
  for(const b of shots){b.x+=b.v*dt;b.t-=dt;for(const m of mice)if(m.alive&&b.t>0&&rect(b,m)){m.alive=false;b.t=0;if(Math.random()<1/10)heartDrops.push({x:m.x+5,y:GROUND-30,w:26,h:26});burst(m.x+15,m.y+10,'#f8ca73',10);tone(220,.08);}}shots=shots.filter(b=>b.t>0);
- for(const m of mice){if(!m.alive)continue;m.x+=m.v*dt;if(m.x<m.min){m.x=m.min;m.v=Math.abs(m.v);}if(m.x>m.max){m.x=m.max;m.v=-Math.abs(m.v);}if(rect(player,m)){hit();if(state!=='playing')return;}}
+ for(const m of mice){if(!m.alive)continue;if(m.kind==='hopper'){m.wait-=dt;if(m.y>=GROUND-m.h&&m.wait<=0){m.vy=-230;m.wait=1.5;m.v=player.x<m.x?-65:65;}m.vy+=850*dt;m.y=Math.min(GROUND-m.h,m.y+m.vy*dt);if(m.y>=GROUND-m.h){m.vy=0;m.v=0;}}
+ m.x+=m.v*dt;if(m.x<m.min){m.x=m.min;m.v=Math.abs(m.v);}if(m.x>m.max){m.x=m.max;m.v=-Math.abs(m.v);}if(rect(player,m)){hit();if(state!=='playing')return;}}
  for(const heart of heartDrops)if(!heart.taken&&rect(player,heart)){heart.taken=true;if(player.hp<3){player.hp++;burst(heart.x+13,heart.y+13,'#ff9aab',8);tone(660,.12);}}
  heartDrops=heartDrops.filter(h=>!h.taken);
- for(const f of fish)if(!f.taken&&rect(player,{x:f.x-12,y:f.y-10,w:24,h:20})){f.taken=true;collected+=f.value||1;burst(f.x,f.y,'#ffdf8d',8);tone(1100,.08);}
+ for(const f of fish)if(!f.taken&&rect(player,{x:f.x-12,y:f.y-10,w:24,h:20})){f.taken=true;const previousCount=collected;collected+=f.value||1;if(previousCount<50&&collected>=50)stock++;burst(f.x,f.y,'#ffdf8d',8);tone(1100,.08);}
  particles.forEach(p=>{p.x+=p.vx*dt;p.y+=p.vy*dt;p.vy+=160*dt;p.t-=dt;});particles=particles.filter(p=>p.t>0);
  camera=Math.max(0,Math.min(WORLD-viewW(),player.x-viewW()*.33));
  if(player.grounded&&player.y+player.h>=GROUND-1&&rect(player,{x:WORLD-200,y:GROUND-145,w:110,h:145})){state='arriving';endingTime=0;arrivalX=player.x;arrivalY=player.y;clearKeys();shots=[];player.inv=0;tone(784,.18);}updateHUD();}
@@ -172,7 +223,29 @@ function sleepingCat(tx){
 
 // Deterministic stone and grass tiles; visuals never change collision geometry.
 function noise(n){return Math.abs(Math.sin(n*127.1+311.7)*43758.5453)%1;}
-function terrain(p){ctx.save();ctx.beginPath();ctx.rect(p.x,p.y,p.w,p.h);ctx.clip();ctx.fillStyle='#283c4c';ctx.fillRect(p.x,p.y,p.w,p.h);
+function forestTerrain(p){
+ // Every pattern is anchored to the platform, never to the scrolling camera.
+ const first=step=>p.x+Math.max(0,Math.floor((camera-50-p.x)/step))*step;
+ const right=Math.min(p.x+p.w,camera+viewW()+50);
+ ctx.save();ctx.beginPath();ctx.rect(p.x,p.y-6,p.w,p.h+6);ctx.clip();
+ if(p.oneWay){
+ ctx.fillStyle='#493b29';ctx.fillRect(p.x,p.y,p.w,23);ctx.fillStyle='#856238';ctx.fillRect(p.x,p.y+4,p.w,15);
+ for(let x=first(9);x<right;x+=9){ctx.fillStyle=noise(x)>.5?'#58442d':'#a47c43';ctx.fillRect(x,p.y+12+noise(x+4)*5,7,2);}
+ for(const x of [p.x+3,p.x+p.w-9]){ctx.fillStyle='#d5b575';ctx.fillRect(x,p.y+9,5,11);ctx.fillStyle='#8c6637';ctx.fillRect(x+2,p.y+11,2,7);}
+ }else{
+ ctx.fillStyle='#705039';ctx.fillRect(p.x,p.y,p.w,p.h);
+ // Scattered fine grains, rounded pebbles, and branching roots instead of blocks.
+ for(let y=p.y+15;y<p.y+p.h;y+=7)for(let x=first(8);x<right;x+=8){const n=noise(x*3+y*7),px=x+noise(x+y)*7,py=y+noise(x-y)*6;ctx.fillStyle=['#634830','#886340','#79583a','#9c784f','#55432f'][Math.floor(n*5)];ctx.fillRect(px,py,1+n*2,1+noise(y+x+8)*2);if(n>.975){ctx.fillStyle='#a28b64';ctx.beginPath();ctx.ellipse(px,py,3,2,.3,0,Math.PI*2);ctx.fill();}}
+ for(let x=first(47);x<right;x+=47){const length=25+noise(x)*55;ctx.strokeStyle='#4e3a29';ctx.lineWidth=1.5;ctx.beginPath();ctx.moveTo(x,p.y+14);ctx.bezierCurveTo(x+8,p.y+30,x-7,p.y+length*.7,x+3,p.y+length);ctx.moveTo(x+1,p.y+28);ctx.lineTo(x-9,p.y+39);ctx.moveTo(x,p.y+43);ctx.lineTo(x+10,p.y+52);ctx.stroke();}
+ }
+ // Dense, overlapping moss cushions, with a soft irregular fringe.
+ ctx.fillStyle='#385c32';ctx.fillRect(p.x,p.y,p.w,p.oneWay?12:18);
+ for(let x=first(6);x<right;x+=6){const n=noise(x+3),depth=p.oneWay?7+n*5:12+n*10;ctx.fillStyle='#4c7935';ctx.beginPath();ctx.ellipse(x+3,p.y+depth*.55,7,depth*.65,0,0,Math.PI*2);ctx.fill();ctx.fillStyle=n>.5?'#78a846':'#65943c';ctx.beginPath();ctx.ellipse(x+3,p.y+3,7,6+n*3,0,0,Math.PI*2);ctx.fill();ctx.fillStyle='#a7c866';ctx.fillRect(x+1,p.y-2,3,2);ctx.fillStyle='#bcd986';ctx.fillRect(x+4,p.y,1,1);}
+ ctx.restore();
+ for(let x=first(40)+8;x<Math.min(p.x+p.w-8,right);x+=40){ctx.fillStyle='#a4ce68';ctx.fillRect(x,p.y-5,2,7);ctx.fillRect(x-3,p.y-3,7,2);if(noise(x)>.72)flower(x,p.y);}
+}
+
+function terrain(p){if(stage===2){forestTerrain(p);return;}ctx.save();ctx.beginPath();ctx.rect(p.x,p.y,p.w,p.h);ctx.clip();ctx.fillStyle='#283c4c';ctx.fillRect(p.x,p.y,p.w,p.h);
  const colors=['#647777','#7b8580','#87928a','#536b70','#8d9185'];
  for(let row=0;row<p.h/25;row++){for(let col=-1;col<p.w/34+1;col++){const x=p.x+col*34+(row%2)*17,y=p.y+row*25+5,n=row*97+col*3+p.x;ctx.fillStyle=colors[Math.floor(noise(n)*5)];ctx.fillRect(x+2,y+2,30,21);ctx.fillStyle='#b3b4a0';ctx.fillRect(x+3,y+2,27,2);ctx.fillRect(x+2,y+4,2,10);ctx.fillStyle='#3b515b';ctx.fillRect(x+4,y+21,26,2);for(let d=0;d<6;d++){ctx.fillStyle=d%2?'#455e62':'#a1a48e';ctx.fillRect(x+4+Math.floor(noise(n+d+8)*24),y+5+Math.floor(noise(n+d+31)*14),2,2);}if(noise(n+2)>.62){ctx.fillStyle='#356549';ctx.fillRect(x+2,y+2,7,9);ctx.fillStyle='#78a456';ctx.fillRect(x+2,y+2,4,4);}}}
  ctx.fillStyle='#254c40';ctx.fillRect(p.x,p.y,p.w,10);ctx.fillStyle='#699b43';ctx.fillRect(p.x,p.y,p.w,5);ctx.fillStyle='#d4e68a';ctx.fillRect(p.x,p.y,p.w,2);
@@ -181,7 +254,7 @@ function terrain(p){ctx.save();ctx.beginPath();ctx.rect(p.x,p.y,p.w,p.h);ctx.cli
 }
 function flower(x,y){ctx.fillStyle='#3f7b48';ctx.fillRect(x,y-17,2,17);ctx.fillRect(x-4,y-8,4,2);ctx.fillStyle='#fff9d7';ctx.fillRect(x-4,y-20,10,3);ctx.fillRect(x-1,y-23,4,10);ctx.fillStyle='#efcf57';ctx.fillRect(x-1,y-20,4,3);}
 // Small world decorations are visual only: they never hide holes or block movement.
-function details(p){
+function details(p){if(stage===2)return;
  const left=p.x+8+Math.max(0,Math.floor((camera-p.x-8)/32))*32,right=Math.min(p.x+p.w-8,camera+viewW()+20);
  for(let x=left;x<right;x+=32){const n=noise(x+p.y),y=p.y;
   if(n>.76){flower(x,y);ctx.fillStyle='#deb1e9';ctx.fillRect(x-3,y-20,3,3);}
@@ -253,18 +326,19 @@ function drawStockLoss(w){
 
 function draw(){const w=viewW();ctx.setTransform(canvas.width/w,0,0,canvas.height/540,0,0);ctx.imageSmoothingEnabled=false;
  ctx.fillStyle='#3c95ed';ctx.fillRect(0,0,w,540);
- if(art.background){const bw=540*art.background.width/art.background.height;const offset=(camera*.035)%bw;for(let i=-1;i<=Math.ceil(w/bw)+1;i++){const x=i*bw-offset;ctx.save();if(i%2){ctx.translate(x+bw,0);ctx.scale(-1,1);ctx.drawImage(art.background,0,0,bw,540);}else ctx.drawImage(art.background,x,0,bw,540);ctx.restore();}}
+ if(stage===2)drawForest(w);
+ else if(art.background){const bw=540*art.background.width/art.background.height;const offset=(camera*.035)%bw;for(let i=-1;i<=Math.ceil(w/bw)+1;i++){const x=i*bw-offset;ctx.save();if(i%2){ctx.translate(x+bw,0);ctx.scale(-1,1);ctx.drawImage(art.background,0,0,bw,540);}else ctx.drawImage(art.background,x,0,bw,540);ctx.restore();}}
  // Atmospheric veil affects only the distant scenery, not the game objects.
  ctx.fillStyle='rgba(225,237,245,.32)';ctx.fillRect(0,0,w,540);
  ctx.fillStyle='#268ddb';ctx.fillRect(0,501,w,39);for(let i=0;i<60;i++){ctx.fillStyle=i%2?'#d2f5ff':'#6bc9ff';ctx.fillRect(((i*57-elapsed*20-camera*.3)%(w+70)+w+70)%(w+70)-35,506+i%6*6,10+i%4*5,2);}
  ctx.save();ctx.translate(-Math.round(camera),0);
  // Rear walls use the same stone and grass, softened to read behind the action.
- for(const p of platforms.filter(p=>p.oneWay)){if(p.x+p.w<camera||p.x>camera+w)continue;ctx.save();terrain(p);details(p);ctx.fillStyle='rgba(173,198,210,.24)';ctx.fillRect(p.x,p.y+5,p.w,p.h-5);ctx.restore();}
+ for(const p of platforms.filter(p=>p.oneWay)){if(p.x+p.w<camera||p.x>camera+w)continue;ctx.save();terrain(p);details(p);if(stage===1){ctx.fillStyle='rgba(173,198,210,.24)';ctx.fillRect(p.x,p.y+5,p.w,p.h-5);}ctx.restore();}
  for(const p of platforms){if(p.oneWay||p.x+p.w<camera||p.x>camera+w)continue;terrain(p);details(p);}
  const signX=WORLD/2-41;if(signX>camera-90&&signX<camera+w)sign(signX,GROUND-92,'中間地点','あと半分！ →');
  for(let i=0;i<SECTION_COUNT;i++){const x=i*SECTION+155;if(x>camera-50&&x<camera+w){shrub(x,GROUND);flower(x+80,GROUND);}}
  for(const f of fish)if(!f.taken&&f.x>camera-30&&f.x<camera+w+30){const y=f.y+Math.sin(elapsed*3+f.x)*3;if(f.value===2){const phase=(elapsed+f.x*.0017)%2.2;if(phase<.4){ctx.save();ctx.globalAlpha=Math.sin(phase/.4*Math.PI)*.85;for(const [dx,dy,r] of [[14,-11,4],[-14,-5,2],[8,12,2]]){const px=f.x+dx,py=y+dy;ctx.fillStyle='#fff1aa';ctx.fillRect(px-r,py,2*r+1,1);ctx.fillRect(px,py-r,1,2*r+1);ctx.fillStyle='#fff';ctx.fillRect(px-1,py-1,3,3);}ctx.restore();}}ctx.save();if(f.value===2)ctx.filter='brightness(1.13) saturate(1.05)';if(!sprite('taiyaki',f.x-18,y-12,36,24))pixel(fishPixels,f.x-14,y-8,2,{a:'#ab6d40',o:'#f4bb66',k:'#493e38'});ctx.restore();}
- for(const m of mice)if(m.alive&&m.x>camera-40&&m.x<camera+w+40){ctx.save();ctx.fillStyle='#15293e80';ctx.fillRect(m.x+2,m.y+m.h-2,30,4);ctx.shadowColor='#fff0d2';ctx.shadowBlur=3;if(!animatedMouse(m)&&!sprite('mouse',m.x,m.y,m.w,m.h,m.v<0))pixel(mousePixels,m.x-2,m.y+2,2.5,{g:'#595365',p:'#efa5ac',k:'#172537',n:'#f4bbb0'},m.v<0);ctx.restore();}
+ for(const m of mice)if(m.alive&&m.x>camera-40&&m.x<camera+w+40){ctx.save();ctx.fillStyle='#15293e80';ctx.fillRect(m.x+2,m.y+m.h-2,30,4);ctx.shadowColor='#fff0d2';ctx.shadowBlur=3;if(m.kind==='hopper')drawHopper(m);else if(!animatedMouse(m)&&!sprite('mouse',m.x,m.y,m.w,m.h,m.v<0))pixel(mousePixels,m.x-2,m.y+2,2.5,{g:'#595365',p:'#efa5ac',k:'#172537',n:'#f4bbb0'},m.v<0);ctx.restore();}
  for(const heart of heartDrops)if(heart.x>camera-30&&heart.x<camera+w+30){const bob=Math.sin(elapsed*4+heart.x)*2;if(heartArt.complete&&heartArt.naturalWidth)ctx.drawImage(heartArt,heart.x,heart.y+bob,26,26);}
  const tx=WORLD-200;if(!sprite('tower',tx-22,GROUND-180+GOAL_OFFSET,160,180))cuteTower(tx,GROUND-145);
  for(const b of shots){ctx.fillStyle='#a5fff0';ctx.fillRect(b.x,b.y,b.w,b.h);ctx.fillStyle='#fffbe5';ctx.fillRect(b.x,b.y+1,b.w,2);}
@@ -305,4 +379,7 @@ function frame(t){if(!last)last=t;acc+=Math.min((t-last)/1000,.05);last=t;while(
 
 
 
+
+
+document.querySelector('#stage-select').addEventListener('change',event=>{stage=Number(event.target.value);reset();state='ready';show(stage===2?'木漏れ日の森':'ねこビーム','たい焼きを集めて、キャットハウスをめざそう！','冒険をはじめる');});
 
